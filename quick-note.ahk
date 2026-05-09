@@ -59,6 +59,10 @@ SCRIPT_DIR := A_ScriptDir
 CONFIG_FILE := SCRIPT_DIR "\local\quick-note-config.json"
 if !FileExist(CONFIG_FILE)
     CONFIG_FILE := SCRIPT_DIR "\quick-note-config.json"
+; Portable mode is detected by the presence of frozen .exes next to the script.
+; In portable builds these sit beside quick-note.exe (renamed AutoHotkey64.exe);
+; in dev mode the .py source is invoked through the configured python_path.
+PORTABLE_MODE := FileExist(SCRIPT_DIR "\note_capture.exe") ? true : false
 PYTHON_PATH := ""
 INBOX_PATH := ""
 VAULT_NAME := ""
@@ -98,14 +102,24 @@ LoadConfig() {
 }
 
 ValidateRequiredConfig() {
-    global PYTHON_PATH, INBOX_PATH
-    if !PYTHON_PATH {
-        MsgBox("Config missing required key: python_path", "Quick Note Error")
-        return false
-    }
-    if !FileExist(PYTHON_PATH) {
-        MsgBox("Configured Python executable not found:`n" PYTHON_PATH, "Quick Note Error")
-        return false
+    global PYTHON_PATH, INBOX_PATH, SCRIPT_DIR, PORTABLE_MODE
+    if PORTABLE_MODE {
+        ; Portable build: bundled .exes replace python_path
+        for exe in ["note_capture.exe", "note_watcher.exe", "claude_launcher.exe"] {
+            if !FileExist(SCRIPT_DIR "\" exe) {
+                MsgBox("Missing portable component: " exe "`nExpected next to quick-note.exe.", "Quick Note Error")
+                return false
+            }
+        }
+    } else {
+        if !PYTHON_PATH {
+            MsgBox("Config missing required key: python_path", "Quick Note Error")
+            return false
+        }
+        if !FileExist(PYTHON_PATH) {
+            MsgBox("Configured Python executable not found:`n" PYTHON_PATH, "Quick Note Error")
+            return false
+        }
     }
     if !INBOX_PATH {
         MsgBox("Config missing required key: inbox_path", "Quick Note Error")
@@ -212,11 +226,19 @@ if !ValidateRequiredConfig() {
 }
 
 LaunchWatcher() {
-    global WATCHER_PID, PYTHON_PATH, SCRIPT_DIR
-    watcherScript := SCRIPT_DIR "\note_watcher.py"
-    if FileExist(watcherScript) && FileExist(PYTHON_PATH) {
-        Run('"' PYTHON_PATH '" "' watcherScript '"', SCRIPT_DIR, "Hide", &pid)
-        WATCHER_PID := pid
+    global WATCHER_PID, PYTHON_PATH, SCRIPT_DIR, PORTABLE_MODE
+    if PORTABLE_MODE {
+        watcherExe := SCRIPT_DIR "\note_watcher.exe"
+        if FileExist(watcherExe) {
+            Run('"' watcherExe '"', SCRIPT_DIR, "Hide", &pid)
+            WATCHER_PID := pid
+        }
+    } else {
+        watcherScript := SCRIPT_DIR "\note_watcher.py"
+        if FileExist(watcherScript) && FileExist(PYTHON_PATH) {
+            Run('"' PYTHON_PATH '" "' watcherScript '"', SCRIPT_DIR, "Hide", &pid)
+            WATCHER_PID := pid
+        }
     }
 }
 LaunchWatcher()
@@ -440,7 +462,7 @@ ShowNoteGUI() {
 }
 
 DoSaveNote(noteText, tag, windowTitle, processName, url) {
-    global PYTHON_PATH, SCRIPT_DIR
+    global PYTHON_PATH, SCRIPT_DIR, PORTABLE_MODE
     noteText := Trim(noteText)
     if !noteText
         return
@@ -459,9 +481,12 @@ DoSaveNote(noteText, tag, windowTitle, processName, url) {
     f.Write(jsonContent)
     f.Close()
 
-    captureScript := SCRIPT_DIR "\note_capture.py"
+    if PORTABLE_MODE
+        cmd := '"' SCRIPT_DIR '\note_capture.exe" "' tempFile '"'
+    else
+        cmd := '"' PYTHON_PATH '" "' SCRIPT_DIR '\note_capture.py" "' tempFile '"'
     try {
-        exitCode := RunWait('"' PYTHON_PATH '" "' captureScript '" "' tempFile '"', SCRIPT_DIR, "Hide")
+        exitCode := RunWait(cmd, SCRIPT_DIR, "Hide")
     } catch {
         TrayTip("Failed to run capture script. Raw note preserved in TEMP: " tempFile, "Quick Note", "0x10")
         return
@@ -476,7 +501,7 @@ DoSaveNote(noteText, tag, windowTitle, processName, url) {
 }
 
 DoSendToClaude(noteText, windowTitle, url) {
-    global PYTHON_PATH, SCRIPT_DIR
+    global PYTHON_PATH, SCRIPT_DIR, PORTABLE_MODE
     noteText := Trim(noteText)
     if !noteText
         return
@@ -493,8 +518,11 @@ DoSendToClaude(noteText, windowTitle, url) {
     f.Write(prompt)
     f.Close()
 
-    launcherScript := SCRIPT_DIR "\claude_launcher.py"
-    try Run('wt.exe "' PYTHON_PATH '" "' launcherScript '" "' tempPrompt '"')
+    if PORTABLE_MODE
+        launchCmd := 'wt.exe "' SCRIPT_DIR '\claude_launcher.exe" "' tempPrompt '"'
+    else
+        launchCmd := 'wt.exe "' PYTHON_PATH '" "' SCRIPT_DIR '\claude_launcher.py" "' tempPrompt '"'
+    try Run(launchCmd)
     catch
         TrayTip("Failed to launch Claude. Prompt preserved in TEMP: " tempPrompt, "Quick Note", "0x10")
 }

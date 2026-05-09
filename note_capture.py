@@ -41,7 +41,12 @@ def setup_logging(log_path: str) -> logging.Logger:
 
 
 def load_config() -> dict:
-    base = Path(__file__).parent
+    # When frozen by PyInstaller, __file__ points inside the bundle's temp
+    # extraction dir; the user's config sits next to the .exe.
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).parent
+    else:
+        base = Path(__file__).parent
     config_path = base / "local" / "quick-note-config.json"
     if not config_path.exists():
         config_path = base / "quick-note-config.json"

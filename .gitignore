@@ -10,3 +10,8 @@ CLAUDE.md
 docs/superpowers/
 # Prevent committing personal config placed at root by mistake (use local/ instead)
 quick-note-config.json
+# Portable build artifacts
+dist/
+build/
+*.spec
+.venv-build/

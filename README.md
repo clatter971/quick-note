@@ -93,6 +93,22 @@ context: "page: How DNS Works | url: https://example.com/dns-guide"
 
 ## Installation
 
+Two options:
+
+- **Portable (easy)** -- one zip, no Python or AutoHotkey install needed. Best for end users.
+- **From source** -- clone the repo, run from your own Python. Best for hacking on it.
+
+### Option A: Portable (recommended)
+
+1. Download the latest `quick-note-portable-<version>.zip` from the [Releases page](https://github.com/clatter971/quick-note/releases).
+2. Extract the folder anywhere -- e.g. `C:\Tools\quick-note\`.
+3. Copy `quick-note-config.example.json` to `local\quick-note-config.json` and edit the paths (see the [Config table](#config)).
+4. Double-click `quick-note.exe`. Press **Win+Shift+N** to capture your first note.
+
+The zip bundles AutoHotkey v2 (renamed to `quick-note.exe`) and PyInstaller-frozen helpers, so nothing is registered system-wide. Delete the folder to uninstall. To upgrade, download the next zip and copy your `local/` folder into it -- your config and preferences carry over.
+
+### Option B: From source
+
 1. **Install AutoHotkey**
 
    ```
@@ -112,25 +128,12 @@ context: "page: How DNS Works | url: https://example.com/dns-guide"
    pip install -r requirements.txt
    ```
 
-4. **Create your config**
+4. **Create your config** (see [Config](#config) below)
 
    ```
    mkdir local
    cp quick-note-config.example.json local/quick-note-config.json
    ```
-
-   Edit `local/quick-note-config.json` and set your paths:
-
-   | Key | Required | Description |
-   |-----|----------|-------------|
-   | `inbox_path` | Yes | Your Obsidian vault's inbox folder (e.g. `C:/Users/you/Vault/00-Inbox`) |
-   | `python_path` | Yes | Path to your Python executable |
-   | `watch_path` | Yes | Folder where Notepad++ saves quick notes |
-   | `vault_name` | No | Your Obsidian vault name for the "Open Inbox" tray action. Auto-derived from `inbox_path` parent folder if omitted. |
-   | `log_path` | No | Where to write logs (defaults to `local/quick-note.log`) |
-   | `hotkey` | No | Global keyboard shortcut (default: `#+n` = Win+Shift+N). See [Changing the keyboard shortcut](#changing-the-keyboard-shortcut). |
-
-   The `local/` folder is gitignored -- your config, logs, and runtime files stay private.
 
 5. **Run it**
 
@@ -152,6 +155,33 @@ context: "page: How DNS Works | url: https://example.com/dns-guide"
    $Shortcut.WorkingDirectory = "C:\path\to\quick-note"
    $Shortcut.Save()
    ```
+
+   For the portable build, point `TargetPath` at `quick-note.exe` instead and drop the `Arguments` line.
+
+### Config
+
+Edit `local/quick-note-config.json`:
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `inbox_path` | Yes | Your Obsidian vault's inbox folder (e.g. `C:/Users/you/Vault/00-Inbox`) |
+| `python_path` | Source build only | Path to your Python executable. Ignored by the portable build. |
+| `watch_path` | Yes | Folder where Notepad++ saves quick notes |
+| `vault_name` | No | Your Obsidian vault name for the "Open Inbox" tray action. Auto-derived from `inbox_path` parent folder if omitted. |
+| `log_path` | No | Where to write logs (defaults to `local/quick-note.log`) |
+| `hotkey` | No | Global keyboard shortcut (default: `#+n` = Win+Shift+N). See [Changing the keyboard shortcut](#changing-the-keyboard-shortcut). |
+
+The `local/` folder is gitignored -- your config, logs, and runtime files stay private.
+
+### Building a portable release yourself
+
+Maintainers and contributors can produce the portable zip locally:
+
+```powershell
+.\build_portable.ps1 -Zip
+```
+
+This script creates a build venv, runs PyInstaller on each helper, copies `AutoHotkey64.exe` to `quick-note.exe`, and assembles the distribution under `dist\quick-note-portable\` plus a versioned zip in `dist\`. The same steps run automatically in CI on tag push (see `.github/workflows/release.yml`).
 
 ## Usage
 
