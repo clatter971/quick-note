@@ -39,7 +39,7 @@ Every note automatically records what you were doing when inspiration struck:
 - **Obsidian-ready output** -- proper YAML frontmatter, kebab-case filenames, drops into your `00-Inbox/` folder
 
 ### AI Integration
-- **Send to Claude** (`Ctrl+Shift+Enter`) -- opens an interactive [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session pre-loaded with your question and the URL you were viewing
+- **Send to Claude** (`Ctrl+Shift+Enter`) -- opens an interactive [Claude Code](https://docs.claude.com/en/docs/claude-code) session pre-loaded with your question and the URL you were viewing
 
 ### Notepad++ Watcher
 A background file watcher monitors a folder for `.txt` files saved from Notepad++ (or any editor). Multi-note files are automatically split on `---` separators or two or more blank lines, and each chunk becomes its own Inbox entry. Great for brain-dump sessions.
@@ -89,7 +89,7 @@ context: "page: How DNS Works | url: https://example.com/dns-guide"
 - [AutoHotkey v2](https://www.autohotkey.com/)
 - Python 3.12+ with [watchdog](https://pypi.org/project/watchdog/)
 - An [Obsidian](https://obsidian.md/) vault with an `00-Inbox/` folder
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI (optional, for the Send to Claude feature)
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) CLI (optional, for the Send to Claude feature)
 
 ## Installation
 
@@ -265,14 +265,16 @@ The Notepad++ watcher runs as a background process alongside the main AHK script
 | `note_watcher.py` | Notepad++ folder monitor with debounce and note splitting |
 | `claude_launcher.py` | Launches interactive Claude Code session with prompt context |
 | `quick-note-config.example.json` | Template config -- copy to `local/` and edit |
-| `test_note_capture.py` | Tests for note capture (45 tests) |
-| `test_note_watcher.py` | Tests for note watcher (8 tests) |
+| `build_portable.ps1` | PowerShell build script that produces the portable distribution zip |
+| `tests/` | Pytest suite (note capture, watcher, launcher, AHK shape, release workflow) |
 
 ## Running Tests
 
+The project uses [`uv`](https://docs.astral.sh/uv/) for development. Install it once (`pipx install uv` or see the [uv install docs](https://docs.astral.sh/uv/getting-started/installation/)), then:
+
 ```
-pip install pytest
-python -m pytest test_note_capture.py test_note_watcher.py -v
+uv sync --extra dev
+uv run pytest
 ```
 
 ## License
