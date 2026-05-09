@@ -1,6 +1,9 @@
 import sys
+
 import pytest
+
 from note_capture import generate_slug
+
 
 def test_slug_basic():
     assert generate_slug("Fix UI thing in app B") == "fix-ui-thing-in-app"
@@ -22,6 +25,7 @@ def test_slug_empty():
 
 
 from note_capture import infer_tag
+
 
 def test_tag_fix():
     assert infer_tag("fix the login button") == "todo"
@@ -61,6 +65,7 @@ def test_tag_bug_with_em_dash():
 
 
 from note_capture import resolve_context
+
 
 def test_context_vscode():
     ctx = resolve_context("budget_calc.py - my-project - Visual Studio Code", "Code.exe")
@@ -133,7 +138,8 @@ def test_context_empty():
     assert ctx["source"] == "unknown"
 
 
-from note_capture import generate_markdown, build_filename
+from note_capture import build_filename, generate_markdown
+
 
 def test_markdown_with_context():
     md = generate_markdown(
@@ -270,11 +276,118 @@ def test_markdown_yaml_escape_quotes():
         context={"source": "chrome", "page": '"React" vs "Vue"'},
         timestamp="2026-03-22T10:00:00",
     )
-    # The YAML context line should have escaped quotes
-    assert '\\"React\\"' in md
-    # Frontmatter should not have unescaped double quotes breaking YAML
-    lines = md.split("\n")
-    for line in lines:
-        if line.startswith("context:"):
-            # Should not have raw unescaped quotes inside the YAML value
-            assert line.count('"') % 2 == 0, f"Unbalanced quotes in YAML: {line}"
+    # Frontmatter must round-trip via a real YAML parser (CN-005)
+    import yaml
+    fm = md.split("---", 2)[1]
+    parsed = yaml.safe_load(fm)
+    assert parsed["source"] == "chrome"
+    assert '"React" vs "Vue"' in parsed["context"]
+
+
+def test_markdown_yaml_round_trip_metacharacters():
+    """CN-005: YAML frontmatter must round-trip safely with metacharacters.
+
+    Real-world input from `note_watcher.py` / `process_file` includes filenames
+    with `:`, `#`, `[`, `]`, U+2028 etc. The hand-rolled escape in
+    ``generate_markdown`` must produce parser-clean YAML for all of them.
+    """
+    import yaml
+
+    nasty_titles = [
+        "key: value with colon",
+        "# leading hash",
+        "[bracket array]",
+        "trailing space ",
+        "title with 'apostrophes'",
+        'title with "quotes"',
+        "C:\\Windows\\System32",
+        "title with @at and !bang and *star",
+    ]
+    for window_title in nasty_titles:
+        md = generate_markdown(
+            note="body text",
+            tag="",
+            context={"source": "notepad++.exe", "window": window_title},
+            timestamp="2026-03-22T14:30:52",
+        )
+        fm = md.split("---", 2)[1]
+        parsed = yaml.safe_load(fm)
+        assert parsed is not None, f"YAML parse failed for: {window_title!r}\n{fm}"
+        assert parsed["source"] == "notepad++.exe"
+        assert window_title.replace(" ", " ") in parsed["context"] or \
+            window_title.strip() in parsed["context"], (
+            f"context lost data for {window_title!r}: got {parsed['context']!r}"
+        )
+
+
+def test_markdown_yaml_safe_with_control_chars():
+    """CN-005: control chars in frontmatter values must not break YAML parse.
+
+    Inputs that today raise yaml.YAMLError because the double-quoted-scalar
+    escape doesn't strip C0 control characters. The fix should sanitize the
+    frontmatter value, not propagate raw control bytes into the YAML.
+    """
+    import yaml
+
+    bad_titles = [
+        "null\x00byte",
+        "bell\x07char",
+        "vertical\x0btab",
+        "ansi\x1b[0mcolor",
+        "form\x0cfeed",
+    ]
+    for window_title in bad_titles:
+        md = generate_markdown(
+            note="body",
+            tag="",
+            context={"source": "notepad++.exe", "window": window_title},
+            timestamp="2026-03-22T14:30:52",
+        )
+        fm = md.split("---", 2)[1]
+        parsed = yaml.safe_load(fm)
+        assert isinstance(parsed, dict), (
+            f"YAML did not parse to a dict for {window_title!r}: got {parsed!r}"
+        )
+        assert parsed.get("source") == "notepad++.exe"
+
+
+def test_save_note_does_not_overwrite_concurrent_collision(tmp_path, monkeypatch):
+    """CN-006: a same-name file racing in between exists()-check and write()
+    must not silently overwrite. The fix uses os.O_CREAT | os.O_EXCL or an
+    atomic os.replace().
+    """
+    from note_capture import build_filename, save_note
+
+    # Pre-create the target so the simple non-collision filename is taken
+    target_name = build_filename("hello world", "2026-03-22T14:30:52")
+    (tmp_path / target_name).write_text("ORIGINAL", encoding="utf-8")
+
+    # Simulate a race: monkeypatch Path.exists so it returns False at the
+    # check, but the file is actually present on disk for the write.
+    from pathlib import Path as _Path
+
+    real_exists = _Path.exists
+
+    def lying_exists(self):
+        # Return False for the FIRST collision-check call; honest after that
+        if not getattr(lying_exists, "lied", False):
+            lying_exists.lied = True
+            return False
+        return real_exists(self)
+
+    monkeypatch.setattr(_Path, "exists", lying_exists)
+
+    # Even with a lying exists(), save_note must not overwrite ORIGINAL
+    save_note(
+        note="hello world",
+        tag="",
+        window_title="",
+        process_name="",
+        timestamp="2026-03-22T14:30:52",
+        inbox_path=str(tmp_path),
+    )
+
+    # The pre-existing file with the same slug must still contain ORIGINAL
+    assert (tmp_path / target_name).read_text(encoding="utf-8") == "ORIGINAL", (
+        "save_note overwrote a colliding file -- TOCTOU race, see CN-006"
+    )

@@ -67,7 +67,8 @@ $venvPyInstall = Join-Path $venvDir 'Scripts\pyinstaller.exe'
 if (-not (Test-Path $venvPyInstall)) {
     Write-Host 'Installing PyInstaller and runtime deps into build venv'
     & $venvPython -m pip install --upgrade pip --quiet
-    & $venvPython -m pip install --quiet pyinstaller watchdog
+    # Keep these versions in sync with .github/workflows/release.yml
+    & $venvPython -m pip install --quiet pyinstaller==6.20.0 watchdog==6.0.0
 }
 
 # --- Build .exes -------------------------------------------------------------

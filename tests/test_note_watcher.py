@@ -3,6 +3,7 @@ import logging
 
 from note_watcher import process_existing_backlog, split_notes
 
+
 def test_split_double_blank_lines():
     text = "First note here\n\n\nSecond note here"
     chunks = split_notes(text)
@@ -164,3 +165,44 @@ def test_process_file_retries_after_failed_save(tmp_path, monkeypatch):
     assert calls["count"] == 2
     db = json.loads(processed_db.read_text(encoding="utf-8"))
     assert str(txt_file) in db
+
+
+def test_process_file_skips_oversized_file(tmp_path, monkeypatch, caplog):
+    """CN-007: process_file must refuse to load multi-MB+ files into memory."""
+    import logging
+
+    from note_watcher import process_file
+
+    txt_file = tmp_path / "big.txt"
+    txt_file.write_text("First note", encoding="utf-8")
+
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    config = {"inbox_path": str(inbox), "log_path": str(tmp_path / "test.log")}
+    monkeypatch.setattr("note_watcher.PROCESSED_DB", str(tmp_path / "processed.json"))
+
+    # Pretend the file is 50 MB without actually allocating it
+    monkeypatch.setattr("os.path.getsize", lambda p: 50 * 1024 * 1024)
+
+    logger = logging.getLogger("test-oversized")
+    with caplog.at_level(logging.WARNING, logger="test-oversized"):
+        process_file(str(txt_file), config, logger)
+
+    md_files = list(inbox.glob("*.md"))
+    assert md_files == [], "Oversized file must not be processed -- see CN-007"
+
+
+def test_processed_db_lives_under_home():
+    """CN-008: PROCESSED_DB must default to a per-user HOME path, not TEMP."""
+    from pathlib import Path
+
+    from note_watcher import PROCESSED_DB
+
+    home = str(Path.home().resolve())
+    assert PROCESSED_DB.startswith(home), (
+        f"PROCESSED_DB should live under HOME ({home}), got "
+        f"{PROCESSED_DB!r} -- see CN-008"
+    )
+    assert "/tmp" not in PROCESSED_DB and "Temp" not in PROCESSED_DB, (
+        f"PROCESSED_DB still references TEMP: {PROCESSED_DB!r}"
+    )

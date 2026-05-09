@@ -219,6 +219,20 @@ def _format_context_frontmatter(context: dict) -> str:
     return " | ".join(parts)
 
 
+_YAML_UNSAFE_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f  ]")
+
+
+def _yaml_safe(value: str) -> str:
+    """Strip characters that break or distort YAML 1.1 quoted scalars.
+
+    YAML rejects most C0 controls inside any scalar (NUL, BEL, VT, ESC, ...)
+    and treats U+2028 / U+2029 as line breaks even inside double-quoted
+    scalars, which silently eats surrounding whitespace.  Tab, newline, and
+    carriage return are preserved here -- the caller already escapes them.
+    """
+    return _YAML_UNSAFE_RE.sub("", value)
+
+
 def generate_markdown(note: str, tag: str, context: dict, timestamp: str) -> str:
     """Render a note as Obsidian-ready markdown with YAML frontmatter.
 
@@ -241,12 +255,19 @@ def generate_markdown(note: str, tag: str, context: dict, timestamp: str) -> str
     source = context.get("source", "unknown")
     context_fm = _format_context_frontmatter(context)
     safe_context_fm = (
-        context_fm.replace("\\", "\\\\")
+        _yaml_safe(context_fm)
+        .replace("\\", "\\\\")
         .replace('"', '\\"')
         .replace("\n", " ")
         .replace("\r", "")
     )
-    safe_source = source.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", "")
+    safe_source = (
+        _yaml_safe(source)
+        .replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", " ")
+        .replace("\r", "")
+    )
 
     # First line = title, rest = body (if multi-line)
     lines = note.split("\n", 1)
@@ -324,14 +345,23 @@ def save_note(
     md = generate_markdown(note, tag, context, timestamp)
 
     filename = build_filename(note, timestamp)
-    filepath = Path(inbox_path) / filename
-    counter = 2
-    while filepath.exists():
-        stem = filename.rsplit(".", 1)[0]
-        filepath = Path(inbox_path) / f"{stem}-{counter}.md"
-        counter += 1
-
-    filepath.write_text(md, encoding="utf-8")
+    stem = filename.rsplit(".", 1)[0]
+    md_bytes = md.encode("utf-8")
+    counter = 1
+    while True:
+        name = filename if counter == 1 else f"{stem}-{counter}.md"
+        candidate = Path(inbox_path) / name
+        try:
+            # O_CREAT | O_EXCL atomically claims the path or fails -- prevents
+            # a TOCTOU race between exists()-check and write_text.
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            counter += 1
+            continue
+        with os.fdopen(fd, "wb") as f:
+            f.write(md_bytes)
+        filepath = candidate
+        break
     logger.info("Saved note: %s", filepath.name)
     return True
 

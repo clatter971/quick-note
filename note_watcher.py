@@ -15,9 +15,21 @@ from watchdog.observers import Observer
 
 from note_capture import load_config, save_note, setup_logging
 
+# Per-user state directory.  PROCESSED_DB lives here (not %TEMP%) so the
+# dedup state is not vulnerable to tampering by other processes that share
+# the temp dir on multi-user or misconfigured systems.
+_STATE_DIR = Path.home() / ".quick-note"
+_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
-PROCESSED_DB = os.path.join(os.environ.get("TEMP", "/tmp"), "quick-note-processed.json")
+PROCESSED_DB = str(_STATE_DIR / "processed.json")
+# PAUSE_FLAG stays in %TEMP% because quick-note.ahk writes it there for IPC;
+# moving it requires a coordinated AHK change.
 PAUSE_FLAG = os.path.join(os.environ.get("TEMP", "/tmp"), "quick-note-watcher-paused")
+
+# Cap on the size of a single .txt file we'll load into memory.
+# A runaway log file accidentally placed in the watch folder would
+# otherwise OOM the watcher silently.
+MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
 
 
 _SPLIT_RE = re.compile(r"\n{3,}|(?:^|\n)---(?:\n|$)")
@@ -58,6 +70,18 @@ def process_file(filepath: str, config: dict, logger: logging.Logger):
     """
     if os.path.exists(PAUSE_FLAG):
         logger.info("Watcher paused, skipping: %s", filepath)
+        return
+
+    try:
+        size = os.path.getsize(filepath)
+    except OSError as e:
+        logger.warning("Could not stat %s: %s", filepath, e)
+        return
+    if size > MAX_FILE_BYTES:
+        logger.warning(
+            "Skipping oversized file (%d bytes > %d): %s",
+            size, MAX_FILE_BYTES, filepath,
+        )
         return
 
     db = _load_processed_db()
